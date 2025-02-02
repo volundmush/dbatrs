@@ -6,3 +6,4 @@ Cargo.lock
 data/logs/*.log
 # We don't want any user-settings either.
 data/config.user*.toml
+data/indata/

@@ -15,10 +15,12 @@ serde = {workspace = true}
 serde_json = {workspace = true}
 bitflags = {workspace = true}
 socketioxide = {workspace = true}
-spaceship = {workspace = true}
+shipyard = {workspace = true}
 rayon = {workspace = true}
 tracy_full = {workspace = true}
 regex = {workspace = true}
 chrono = {workspace = true}
 rand = {workspace = true}
 once_cell = {workspace = true}
+lasso = {workspace = true}
+phf = {workspace = true}

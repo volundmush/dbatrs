@@ -1,0 +1,24 @@
+[package]
+name = "dbatrs-game"
+version = "0.1.0"
+edition.workspace = true
+
+[dependencies]
+dbatrs-shared = { path = "../dbatrs-shared" }
+tokio = {workspace = true}
+tokio-stream = {workspace = true}
+tokio-util = {workspace = true}
+futures = {workspace = true}
+tracing = {workspace = true}
+tracing-subscriber = {workspace = true}
+serde = {workspace = true}
+serde_json = {workspace = true}
+bitflags = {workspace = true}
+socketioxide = {workspace = true}
+spaceship = {workspace = true}
+rayon = {workspace = true}
+tracy_full = {workspace = true}
+regex = {workspace = true}
+chrono = {workspace = true}
+rand = {workspace = true}
+once_cell = {workspace = true}

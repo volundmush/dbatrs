@@ -1,0 +1,5 @@
+[socketio]
+
+
+[portal]
+telnet = "0.0.0.0:7000"

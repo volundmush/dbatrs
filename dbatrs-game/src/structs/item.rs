@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize, Deserializer};
 use crate::{
     bitflags_with_str,
     enum_with_str,
-    components::{
+    structs::{
         character::{Race, Sensei}
     }
 };

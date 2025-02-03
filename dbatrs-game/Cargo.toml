@@ -14,7 +14,7 @@ tracing-subscriber = {workspace = true}
 serde = {workspace = true}
 serde_json = {workspace = true}
 bitflags = {workspace = true}
-socketioxide = {workspace = true}
+surrealdb = {workspace = true}
 shipyard = {workspace = true}
 rayon = {workspace = true}
 tracy_full = {workspace = true}

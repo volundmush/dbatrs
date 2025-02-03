@@ -15,6 +15,7 @@ use tracing_subscriber::{prelude::*, fmt};
 
 use dbatrs_shared::TotalConf;
 
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
 

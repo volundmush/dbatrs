@@ -29,8 +29,7 @@ lazy-regex = "3.2"
 trust-dns-resolver = "0.23"
 #rustls-pemfile = "2.1"
 bitflags = { version = "2.8", features = ["serde"] }
-socketioxide = "0.16"
-rust_socketio = { version = "0.6", features = ["async"] }
+surrealdb = "2.1"
 futures = "0.3"
 futures-util = "0.3"
 config = "0.15"

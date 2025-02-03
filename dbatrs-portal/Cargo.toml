@@ -18,5 +18,6 @@ serde = {workspace = true}
 serde_json = {workspace = true}
 bitflags = {workspace = true}
 trust-dns-resolver = {workspace = true}
-rust_socketio = {workspace = true}
+surrealdb = {workspace = true}
 tracy_full = {workspace = true}
+lazy-regex = {workspace = true}

@@ -24,6 +24,7 @@ enum_with_str! {
 }
 
 bitflags_with_str! {
+    #[derive(Component)]
     pub struct RoomFlags: u128 {
         const DARK = 1 << 0; // Dark
         const DEATH = 1 << 1; // Death trap
@@ -98,6 +99,7 @@ bitflags_with_str! {
 }
 
 bitflags_with_str! {
+    #[derive(Debug, Clone, Default, Serialize, Deserialize)]
     pub struct ExitFlags: u8 {
         const ISDOOR = 1 << 0;
         const CLOSED = 1 << 1;
@@ -113,6 +115,7 @@ pub struct Exit {
     pub keyword: String,
     pub destination: usize,
     pub key: Option<usize>,
+    pub flags: ExitFlags
 }
 
 enum_with_str! {

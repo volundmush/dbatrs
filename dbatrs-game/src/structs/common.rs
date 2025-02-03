@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize, Deserializer};
 use crate::{bitflags_with_str, enum_with_str};
 
 // This is a component used for storing all entities which have a long-term presence in the database.
-#[derive(Component, Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DbEntityType {
     Zone = 0,
     Room = 1,
@@ -64,7 +64,7 @@ pub struct Player {
 }
 
 // Used for quick identification of physical things in the game world.
-#[derive(Component, Clone, Debug, Serialize, Deserialize)]
+#[derive(Component, Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThingType {
     Room = 0,
     Character = 1,

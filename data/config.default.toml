@@ -1,5 +1,10 @@
-[socketio]
-
+[surreal]
+address = "127.0.0.1:8000"
+tls = false
+namespace = "dbat"
+database = "dbat"
+username = "root"
+password = "root"
 
 [portal]
 telnet = "0.0.0.0:7000"

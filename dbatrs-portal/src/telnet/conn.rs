@@ -26,12 +26,20 @@ use futures::{
 use bitflags::bitflags;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use rust_socketio::{asynchronous::{ClientBuilder, Client}, Payload, Event};
 
+use lazy_regex::regex;
+
+use surrealdb::{Notification, RecordId};
+use surrealdb::opt::auth::{Jwt, Record};
+use surrealdb::engine::remote::ws::{Ws, Wss, Client};
+use surrealdb::Surreal;
 use dbatrs_shared::{
     TotalConf,
     ProtocolCapabilities,
-    Color
+    Color,
+    Conn,
+    ConnOutput,
+    Credentials
 };
 
 use crate::{
@@ -171,22 +179,19 @@ pub struct TelnetProtocol<T> {
     time_created: Instant,
     time_activity: Instant,
     timers: TelnetTimers,
-    tx_socketio: mpsc::Sender<(Event, Payload, Client)>,
-    rx_socketio: mpsc::Receiver<(Event, Payload, Client)>,
-    client: Option<Client>,
+    game: Surreal<Client>,
+    authenticated: bool,
+    jwt: Option<Jwt>,
+    conn_sess: Option<RecordId>
 }
 
 
 impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unpin + Sync {
     pub fn new(conf: Arc<TotalConf>, conn: T, addr: SocketAddr, hostnames: Vec<String>, tls: bool) -> Self {
 
-        let (tx_socketio, rx_socketio) = mpsc::channel::<(Event, Payload, Client)>(10);
-
         let mut out = Self {
             conf,
             conn: Framed::new(conn, TelnetCodec::new(8192)),
-            tx_socketio,
-            rx_socketio,
             running: true,
             app_buffer: BytesMut::with_capacity(1024),
             time_created: Instant::now(),
@@ -198,7 +203,10 @@ impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unp
             op_state: HashMap::new(),
             config: ProtocolCapabilities::with_custom_defaults(),
             handshakes_left: Default::default(),
-            client: None
+            game: Surreal::init(),
+            authenticated: false,
+            jwt: None,
+            conn_sess: None
         };
         // Stack overflow before reaching this point.
         out.config.tls = tls;
@@ -263,20 +271,14 @@ impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unp
         // The main loop which operates the protocol during and after negotiation.
         while self.running {
             tokio::select! {
-            t_msg = self.conn.next() => self.handle_conn(t_msg).await,
-            Some(msg) = self.rx_socketio.recv() => {
-                match msg {
-                    (event, payload, client) => {
-                        let _ = self.handle_socketio_event(event, payload, client).await;
-                    }
+                t_msg = self.conn.next() => self.handle_conn(t_msg).await,
+
+                Some(i_msg) = interval_timer.next() => {
+                    let _ = self.handle_interval_timer(i_msg.into_std()).await;
                 }
-            }
-            Some(i_msg) = interval_timer.next() => {
-                let _ = self.handle_interval_timer(i_msg.into_std()).await;
-            }
-            _ = time::sleep_until(negotiation_deadline), if in_negotiation_phase => {
-                in_negotiation_phase = false;
-            }
+                _ = time::sleep_until(negotiation_deadline), if in_negotiation_phase => {
+                    in_negotiation_phase = false;
+                }
         }
 
             // Check if negotiations are complete or timed out
@@ -285,41 +287,35 @@ impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unp
             }
 
             // If negotiations have just completed or timed out, send the ClientConnected message
-            if !in_negotiation_phase && self.client.is_none() {
-                let tx_socketio = self.tx_socketio.clone();
-
-                let client_result = ClientBuilder::new("http://localhost:3000")
-                    .namespace("/game")
-                    .opening_header("X-Forwarded-For", self.config.host_address.clone())
-                    .on_any(move |event, payload, client| {
-                        // We now use the locally captured tx_socketio.
-                        let tx_socketio = tx_socketio.clone();
-                        Box::pin(async move {
-                            let _ = tx_socketio.send((event, payload, client)).await;
-                        })
-                    })
-                    .connect()
-                    .await;
-
-                match client_result {
-                    Ok(client) => {
-                        self.client = Some(client);
+            if !in_negotiation_phase && !self.active {
+                match self.setup_surreal().await {
+                    Ok(_) => {
                         self.active = true;
-                        self.process_app_buffer().await;
-                    }
-                    Err(err) => {
-                        tracing::error!("Failed to connect to game server: {:?}", err);
-                        let _ = self.send(TelnetEvent::Data(Bytes::from("Failed to connect to game server. We'll keep trying...\r\n"))).await;
-                        // You can choose to retry, return, or handle the error here.
+                        self.authenticated = false;
+                        let _ = self.send(TelnetEvent::Data(Bytes::from("Connected to game server.\r\n"))).await;
+                    },
+                    Err(e) => {
+                        let _ = self.send(TelnetEvent::Data(Bytes::from("Failed to connect to game server. We'll keep trying...\r\n".to_string()))).await;
                     }
                 }
             }
         }
     }
 
-    async fn handle_socketio_event(&mut self, event: Event, payload: Payload, client: Client) {
-        println!("SocketIO Event: {:?}", event);
-        println!("Payload: {:?}", payload);
+    async fn setup_surreal(&mut self) -> Result<(), surrealdb::Error> {
+        if self.conf.surreal.tls {
+            self.game.connect::<Wss>(&self.conf.surreal.address).await?;
+        } else {
+            self.game.connect::<Ws>(&self.conf.surreal.address).await?;
+        };
+
+        self.game.use_ns(&self.conf.surreal.namespace).use_db(&self.conf.surreal.database).await?;
+
+        Ok(())
+    }
+
+    async fn handle_conn_output(&mut self, msg: Result<Notification<ConnOutput>, surrealdb::Error>) {
+        println!("Received notification: {:?}", msg);
     }
 
     async fn handle_interval_timer(&mut self, ins: Instant) {
@@ -340,7 +336,7 @@ impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unp
             },
             TelnetEvent::Data(data) => {
                 self.app_buffer.put(data);
-                if self.client.is_some() {
+                if self.active {
                     let _ = self.process_app_buffer().await;
                 }
             }
@@ -379,11 +375,96 @@ impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unp
         }
     }
 
+    async fn handle_init_conn(&mut self) -> Result<(), surrealdb::Error> {
+        let res: Option<Conn> = self.game.run("fn::create_conn()").await?;
+
+        if res.is_some() {
+            self.conn_sess = Some(res.unwrap().id);
+        }
+        Ok(())
+    }
+
+    async fn handle_authenticate(&mut self, jwt: Jwt) {
+        self.jwt = Some(jwt.clone());
+        match self.game.authenticate(jwt).await {
+            Ok(_) => {
+                self.authenticated = true;
+            },
+            Err(e) => {
+                let _ = self.send(TelnetEvent::Data(Bytes::from(format!("Failed to authenticate: {}\r\n", e)))).await;
+            }
+        }
+    }
+
+    async fn handle_login(&mut self, cmd: String) {
+        // Adjust the regex if needed—here we assume passwords have no spaces.
+        let re = regex!("^(\\w+)\\s+(\\S+)=(.+)$");
+
+        if let Some(caps) = re.captures(&cmd) {
+            // Group 1: command ("login" or "register")
+            let command = caps.get(1).unwrap().as_str().to_lowercase();
+            // Group 2: email
+            let email = caps.get(2).unwrap().as_str();
+            // Group 3: password
+            let password = caps.get(3).unwrap().as_str();
+
+            let rec = Record {
+                namespace: &self.conf.surreal.namespace,
+                database: &self.conf.surreal.database,
+                access: "account",
+                params: Credentials {
+                    email,
+                    password
+                }
+            };
+
+            // Now you can use these values:
+            match command.as_str() {
+                "register" => {
+                    match self.game.signup(rec).await {
+                        Ok(jwt) => {
+                            let _ = self.send(TelnetEvent::Data(Bytes::from("You have successfully registered.\r\n"))).await;
+                            let _ = self.handle_authenticate(jwt).await;
+                        },
+                        Err(e) => {
+                            let _ = self.send(TelnetEvent::Data(Bytes::from(format!("Failed to register: {}\r\n", e)))).await;
+                        }
+                    }
+                },
+                "login" => {
+                    match self.game.signin(rec).await {
+                        Ok(jwt) => {
+                            let _ = self.send(TelnetEvent::Data(Bytes::from("You have successfully logged in.\r\n"))).await;
+                            let _ = self.handle_authenticate(jwt).await;
+                        },
+                        Err(e) => {
+                            let _ = self.send(TelnetEvent::Data(Bytes::from(format!("Failed to login: {}\r\n", e)))).await;
+                        }
+                    }
+                },
+                _ => {
+                    let _ = self.send(TelnetEvent::Data(Bytes::from("Invalid command.\r\n\
+                    Choices are \"register <email>=<password>\" or \"login <email>=<password>\"\r\n"))).await;
+                }
+            }
+
+            // Process the command accordingly...
+        } else {
+            let _ = self.send(TelnetEvent::Data(Bytes::from("Invalid command.\r\n\
+            Choices are \"register <email>=<password>\" or \"login <email>=<password>\"\r\n"))).await;
+        }
+    }
+
     async fn handle_user_command(&mut self, cmd: String) {
         if cmd.starts_with("//") {
             let _ = self.handle_protocol_command(cmd);
-        } else if self.client.is_some() {
-            // We must format the command as a Msg2PortalFromClient::Data, so we must encapsulate this in a MudData.
+        } else if self.active {
+            if self.authenticated {
+                // we are authenticated
+            } else {
+                // We are not authenticated, so we need to handle the signup/signin process.
+                let _ = self.handle_login(cmd).await;
+            }
 
         }
     }
@@ -786,7 +867,7 @@ impl<T> TelnetProtocol<T> where T: AsyncRead + AsyncWrite + Send + 'static + Unp
     }
 
     async fn update_capabilities(&mut self) {
-        if self.client.is_some() {
+        if self.active {
 
         }
     }

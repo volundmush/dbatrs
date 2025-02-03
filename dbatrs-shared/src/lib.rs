@@ -1,5 +1,19 @@
 use serde::{Deserialize, Serialize};
 use config::{Config, File, FileFormat, ConfigError};
+use chrono::{DateTime, Utc};
+use surrealdb::{Notification, Error, RecordId};
+
+use serde_json::Value as JsonValue;
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+pub struct SurrealConf {
+    pub address: String,
+    pub tls: bool,
+    pub namespace: String,
+    pub database: String,
+    pub username: String,
+    pub password: String
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct PortalConf {
@@ -8,6 +22,7 @@ pub struct PortalConf {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct TotalConf {
+    pub surreal: SurrealConf,
     pub portal: PortalConf
 
 }
@@ -84,4 +99,30 @@ impl ProtocolCapabilities {
             ..Default::default()
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Conn {
+    pub id: RecordId,
+    pub user: RecordId,
+    pub time_created: DateTime<Utc>,
+    pub time_system_activity: DateTime<Utc>,
+    pub time_user_activity: DateTime<Utc>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConnOutput {
+    pub id: RecordId,
+    pub user: RecordId,
+    pub conn: RecordId,
+    pub time_created: DateTime<Utc>,
+    pub data_type: String,
+    pub command: String,
+    pub gmcp: JsonValue
+}
+
+#[derive(Serialize)]
+pub struct Credentials<'a> {
+    pub email: &'a str,
+    pub password: &'a str,
 }
